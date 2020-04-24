@@ -1,0 +1,9 @@
+# sys-rpms
+
+[![Build status](https://img.shields.io/travis/juhp/sys-rpms.svg?logo=travis)](https://travis-ci.org/juhp/sys-rpms)
+[![Hackage](https://img.shields.io/hackage/v/sys-rpms.svg?logo=haskell)](https://hackage.haskell.org/package/sys-rpms)
+[![Stackage Lts](http://stackage.org/package/sys-rpms/badge/lts)](http://stackage.org/lts/package/sys-rpms)
+[![Stackage Nightly](http://stackage.org/package/sys-rpms/badge/nightly)](http://stackage.org/nightly/package/sys-rpms)
+[![MIT license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+record installed rpms in system or container
