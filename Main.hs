@@ -1,15 +1,17 @@
 module Main (main) where
 
 import Control.Monad
-import Data.Char
 import Data.List
+import Data.List.Split
 import Data.Time.Clock
 import Data.Time.Format
 import SimpleCmd
 import SimpleCmdArgs
+import System.Environment
 import System.Environment.XDG.BaseDir (getUserCacheDir)
 import System.Directory
 import System.FilePath
+import System.Posix.Process
 
 import Paths_sys_rpms (version)
 
@@ -56,23 +58,51 @@ getCacheFile mid = do
 
 getSystemId :: IO String
 getSystemId = do
-  cgroup <- takeBaseName <$> readFile "/proc/self/cgroup"
-  take 12 <$> case span (isLetter) cgroup of
-                ("libpod", cid) -> return $ tail cid
-                ("docker", cid) -> return $ tail cid
-                _ -> readFile "/etc/machine-id"
+  name <- getSystemName
+  container <- doesFileExist "/run/.containerenv"
+  ((name ++ "-") ++) . take 12 <$> if container
+    then getParentProcessID >>= getContainerId . show
+    else readFile "/etc/machine-id"
+  where
+    getSystemName :: IO String
+    getSystemName = do
+      hostname <- readFile "/etc/hostname"
+      case hostname of
+        "toolbox" -> getEnv "DISTTAG"
+        _ -> return $ takeWhile (/= '.') hostname
 
-latestCacheFile :: FilePath -> IO FilePath
-latestCacheFile path = do
+    getContainerId :: String -> IO String
+    getContainerId pid = do
+      let procpid = "/proc" </> pid
+      comm <- readFile (procpid </> "comm")
+      if comm == "conmon\n" then
+        head . tail . dropWhile (/= "-c") . splitOn "\NUL" <$> readFile (procpid </> "cmdline")
+        else do
+        status <- lines <$> readFile (procpid </> "status")
+        let mppid = find ("PPid:" `isInfixOf`) status
+        case mppid of
+          Nothing -> error' "could not determine containerid"
+          Just ppid -> getContainerId $ removePrefix "PPid:\t" ppid
+
+latestCacheTimeStamp :: FilePath -> IO FilePath
+latestCacheTimeStamp path = do
   let (dir,base) = splitFileName path
   files <- sort . filter (base `isPrefixOf`) <$> listDirectory dir
   return $ removePrefix base $ last files
 
 diffCmd :: Maybe String -> IO ()
-diffCmd mid = do
-  basefile <- getCacheFile mid
-  latest <- latestCacheFile basefile
-  pipe3_ ("rpm",rpmqaArgs) ("sort",[]) ("diff",["-u0", basefile ++ latest, "-"])
+diffCmd msysid = do
+  sysid <- case msysid of
+    Nothing -> do
+        basefile <- getCacheFile Nothing
+        ts <- latestCacheTimeStamp basefile
+        return $ basefile ++ ts
+    Just sid -> do
+      dir <- getUserCacheDir "sys-rpms"
+      return $ dir </> sid
+  localrpms <- sort <$> cmdLines "rpm" rpmqaArgs
+  diff <- cmdIgnoreErr "diff" ["-u0", sysid, "-"] $ unlines localrpms
+  mapM_ putStrLn $ filter (not . ("@@ " `isPrefixOf`)) $ lines diff
 
 rpmqaArgs :: [String]
 rpmqaArgs = ["-qa", "--qf", "%{name}\n"]
@@ -80,20 +110,11 @@ rpmqaArgs = ["-qa", "--qf", "%{name}\n"]
 listCmd :: IO ()
 listCmd = do
   dir <- getUserCacheDir "sys-rpms"
-  files <- filter (not . ("." `isInfixOf`)) <$> listDirectory dir
+  systems <- filter (not . ("." `isInfixOf`)) <$> listDirectory dir
   machineid <- take 12 <$> readFile "/etc/machine-id"
   ident <- getSystemId
-  forM_ files $ \ file -> do
-    putStr file
-    if file == machineid
-      then putStr $ " hostsystem"
-      -- FIXME use "--format {{.NAMES}}" when it is unbroken
-      else do
-      -- FIXME support docker too, anything else?
-      podman <- findExecutable "podman"
-      case podman of
-        Nothing -> putStr $ " container"
-        Just _ -> do
-          name <- last . words . last <$> cmdLines "podman" ["ps", "--filter", "id=" ++ file]
-          putStr $ " " ++ name
-    putStrLn $ if file == ident then " [local]" else ""
+  forM_ systems $ \ sys -> do
+    timestamp <- latestCacheTimeStamp (dir </> sys)
+    putStr $ sys ++ timestamp
+    when (machineid `isSuffixOf` sys) $ putStr " [host]"
+    putStrLn $ if sys == ident then " [local]" else ""

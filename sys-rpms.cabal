@@ -35,7 +35,9 @@ executable sys-rpms
                      , filepath
                      , simple-cmd
                      , simple-cmd-args >= 0.1.6
+                     , split
                      , time
+                     , unix
                      , xdg-basedir
 
   ghc-options:         -Wall
