@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Main (main) where
 
 import Control.Monad
@@ -118,3 +120,13 @@ listCmd = do
     putStr $ sys ++ timestamp
     when (machineid `isSuffixOf` sys) $ putStr " [host]"
     putStrLn $ if sys == ident then " [local]" else ""
+
+#if (defined(MIN_VERSION_simple_cmd) && MIN_VERSION_simple_cmd(0,1,4))
+#else
+error' :: String -> a
+#if (defined(MIN_VERSION_base) && MIN_VERSION_base(4,9,0))
+error' = errorWithoutStackTrace
+#else
+error' = error
+#endif
+#endif

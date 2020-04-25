@@ -1,6 +1,6 @@
-cabal-version:       2.4
+cabal-version:       2.0
 name:                sys-rpms
-version:             0.0
+version:             0.1
 synopsis:            record installed rpms in system or container
 description:         record installed rpms in system or container
 homepage:            https://github.com/juhp/sys-rpms
