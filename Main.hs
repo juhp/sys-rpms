@@ -28,6 +28,10 @@ main =
       diffCmd <$> optional (strArg "ID")
     , Subcommand "list" "list of rpm systems saved" $
       pure listCmd
+    , Subcommand "show" "show saved package list" $
+      showCmd <$> optional (strArg "ID")
+    , Subcommand "current" "output current system rpms" $
+      pure currentCmd
     ]
 
 -- FIXME --versions ?
@@ -121,6 +125,24 @@ listCmd = do
     putStr $ sys ++ timestamp
     when (machineid `isSuffixOf` sys) $ putStr " [host]"
     putStrLn $ if sys == ident then " [local]" else ""
+
+showCmd :: Maybe String -> IO ()
+showCmd msysid = do
+  sysid <- case msysid of
+    Nothing -> do
+        basefile <- getCacheFile Nothing
+        ts <- latestCacheTimeStamp basefile
+        return $ basefile ++ ts
+    Just sid -> do
+      dir <- getUserCacheDir "sys-rpms"
+      ifM (doesFileExist (dir </> sid)) (return $ dir </> sid) $ do
+        timestamp <- latestCacheTimeStamp (dir </> sid)
+        return $ dir </>  sid ++ timestamp
+  readFile sysid >>= putStr
+
+currentCmd :: IO ()
+currentCmd =
+  cmdLines "rpm" rpmqaArgs >>= mapM_ putStrLn . sort
 
 #if (defined(MIN_VERSION_simple_cmd) && MIN_VERSION_simple_cmd(0,1,4))
 #else
