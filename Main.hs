@@ -90,7 +90,8 @@ latestCacheTimeStamp :: FilePath -> IO FilePath
 latestCacheTimeStamp path = do
   let (dir,base) = splitFileName path
   files <- sort . filter (base `isPrefixOf`) <$> listDirectory dir
-  return $ removePrefix base $ last files
+  return $ if null files then error' $ base ++ " not found in " ++ dir
+    else removePrefix base $ last files
 
 diffCmd :: Maybe String -> IO ()
 diffCmd msysid = do
