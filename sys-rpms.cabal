@@ -32,6 +32,7 @@ executable sys-rpms
 
   build-depends:       base >= 4.9 && < 5
                      , directory
+                     , extra
                      , filepath
                      , simple-cmd
                      , simple-cmd-args >= 0.1.6

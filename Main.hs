@@ -2,12 +2,15 @@
 
 module Main (main) where
 
-import Control.Monad
+import Control.Monad.Extra
 import Data.List
 import Data.List.Split
 import Data.Time.Clock
 import Data.Time.Format
 import SimpleCmd
+#if MIN_VERSION_simple_cmd(0,2,1)
+  hiding (ifM)
+#endif
 import SimpleCmdArgs
 import System.Environment
 import System.Environment.XDG.BaseDir (getUserCacheDir)
