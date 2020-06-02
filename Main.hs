@@ -37,7 +37,7 @@ main =
 -- FIXME --versions ?
 saveCmd :: IO ()
 saveCmd = do
-  basefile <- getCacheFile Nothing
+  basefile <- getBaseFile
   exists <- doesFileExist basefile
   rpms <- sort <$> cmdLines "rpm" rpmqaArgs
   mstore <-
@@ -55,12 +55,18 @@ saveCmd = do
       writeFile store $ unlines rpms
       putStrLn store
 
--- FIXME --force/--delete
-getCacheFile :: Maybe String -> IO FilePath
-getCacheFile mid = do
-  ident <- maybe getSystemId return mid
+getBaseFile :: IO FilePath
+getBaseFile = do
   dir <- getUserCacheDir "sys-rpms"
+  ident <- getSystemId
   return $ dir </> ident
+
+-- FIXME? --force/--delete
+getCacheFile :: IO FilePath
+getCacheFile = do
+  base <- getBaseFile
+  ts <- latestCacheTimeStamp base
+  return $ base ++ ts
 
 getSystemId :: IO String
 getSystemId = do
@@ -100,10 +106,7 @@ latestCacheTimeStamp path = do
 diffCmd :: Maybe String -> IO ()
 diffCmd msysid = do
   sysid <- case msysid of
-    Nothing -> do
-        basefile <- getCacheFile Nothing
-        ts <- latestCacheTimeStamp basefile
-        return $ basefile ++ ts
+    Nothing -> getCacheFile
     Just sid -> do
       dir <- getUserCacheDir "sys-rpms"
       return $ dir </> sid
@@ -129,10 +132,7 @@ listCmd = do
 showCmd :: Maybe String -> IO ()
 showCmd msysid = do
   sysid <- case msysid of
-    Nothing -> do
-        basefile <- getCacheFile Nothing
-        ts <- latestCacheTimeStamp basefile
-        return $ basefile ++ ts
+    Nothing -> getCacheFile
     Just sid -> do
       dir <- getUserCacheDir "sys-rpms"
       ifM (doesFileExist (dir </> sid)) (return $ dir </> sid) $ do
