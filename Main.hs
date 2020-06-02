@@ -38,22 +38,25 @@ main =
 saveCmd :: IO ()
 saveCmd = do
   basefile <- getBaseFile
-  exists <- doesFileExist basefile
-  rpms <- sort <$> cmdLines "rpm" rpmqaArgs
+  mlatest <- maybeLatestCacheFile basefile
+  rpms <- unlines . sort <$> cmdLines "rpm" rpmqaArgs
   mstore <-
-    if exists then do
-      origrpms <- lines <$> readFile basefile
-      if rpms == origrpms then return Nothing
-        else do
-        zt <- getCurrentTime
-        let timestamp = formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%z" zt
-        return $ Just $ basefile <.> timestamp
-    else return $ Just basefile
+    case mlatest of
+      Just cache -> do
+        origrpms <- readFile cache
+        if rpms == origrpms then return Nothing
+          else Just <$> newFilename basefile
+      Nothing -> Just <$> newFilename basefile
   case mstore of
     Nothing -> putStrLn "no change"
     Just store -> do
-      writeFile store $ unlines rpms
+      writeFile store rpms
       putStrLn store
+  where
+    newFilename base = do
+        zt <- getCurrentTime
+        let timestamp = formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%z" zt
+        return $ base <.> timestamp
 
 getBaseFile :: IO FilePath
 getBaseFile = do
@@ -63,10 +66,8 @@ getBaseFile = do
 
 -- FIXME? --force/--delete
 getCacheFile :: IO FilePath
-getCacheFile = do
-  base <- getBaseFile
-  ts <- latestCacheTimeStamp base
-  return $ base ++ ts
+getCacheFile =
+  getBaseFile >>= latestCacheFile
 
 getSystemId :: IO String
 getSystemId = do
@@ -96,12 +97,19 @@ getSystemId = do
           Nothing -> error' "could not determine containerid"
           Just ppid -> getContainerId $ removePrefix "PPid:\t" ppid
 
-latestCacheTimeStamp :: FilePath -> IO FilePath
-latestCacheTimeStamp path = do
+maybeLatestCacheFile :: FilePath -> IO (Maybe FilePath)
+maybeLatestCacheFile path = do
   let (dir,base) = splitFileName path
   files <- sort . filter (base `isPrefixOf`) <$> listDirectory dir
-  return $ if null files then error' $ base ++ " not found in " ++ dir
-    else removePrefix base $ last files
+  return $ if null files then Nothing
+           else Just $ dir </> last files
+
+latestCacheFile :: FilePath -> IO FilePath
+latestCacheFile path = do
+  mlatest <- maybeLatestCacheFile path
+  case mlatest of
+    Nothing -> error' $ path ++ "* not found"
+    Just file -> return file
 
 diffCmd :: Maybe String -> IO ()
 diffCmd msysid = do
@@ -124,8 +132,8 @@ listCmd = do
   machineid <- take 12 <$> readFile "/etc/machine-id"
   ident <- getSystemId
   forM_ systems $ \ sys -> do
-    timestamp <- latestCacheTimeStamp (dir </> sys)
-    putStr $ sys ++ timestamp
+    latest <- latestCacheFile (dir </> sys)
+    putStr $ takeFileName latest
     when (machineid `isSuffixOf` sys) $ putStr " [host]"
     putStrLn $ if sys == ident then " [local]" else ""
 
@@ -135,9 +143,8 @@ showCmd msysid = do
     Nothing -> getCacheFile
     Just sid -> do
       dir <- getUserCacheDir "sys-rpms"
-      ifM (doesFileExist (dir </> sid)) (return $ dir </> sid) $ do
-        timestamp <- latestCacheTimeStamp (dir </> sid)
-        return $ dir </>  sid ++ timestamp
+      ifM (doesFileExist (dir </> sid)) (return $ dir </> sid) $
+        latestCacheFile (dir </> sid)
   readFile sysid >>= putStr
 
 currentCmd :: IO ()
