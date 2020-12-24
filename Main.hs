@@ -28,7 +28,7 @@ main =
     [ Subcommand "save" "save rpm list for this system/container" $
       pure saveCmd
     , Subcommand "diff" "compare current installed rpms with saved list" $
-      diffCmd <$> optional (strArg "ID")
+      diffCmd <$> diffFilter <*> optional (strArg "ID")
     , Subcommand "list" "list of rpm systems saved" $
       pure listCmd
     , Subcommand "show" "show saved package list" $
@@ -36,6 +36,12 @@ main =
     , Subcommand "current" "output current system rpms" $
       pure currentCmd
     ]
+  where
+    diffFilter =
+      flagWith' DiffAdded 'a' "added" "Show added packages" <|>
+      flagWith DiffNormal DiffRemoved 'd' "removed" "Show removed packages"
+
+data DiffFilter = DiffNormal | DiffRemoved | DiffAdded
 
 -- FIXME --versions ?
 saveCmd :: IO ()
@@ -114,16 +120,22 @@ latestCacheFile path = do
     Nothing -> error' $ path ++ "* not found"
     Just file -> return file
 
-diffCmd :: Maybe String -> IO ()
-diffCmd msysid = do
+diffCmd :: DiffFilter -> Maybe String -> IO ()
+diffCmd dfilter msysid = do
   sysid <- case msysid of
     Nothing -> getCacheFile
     Just sid -> do
       dir <- getUserCacheDir "sys-rpms"
       return $ dir </> sid
   localrpms <- sort <$> cmdLines "rpm" rpmqaArgs
-  diff <- cmdIgnoreErr "diff" ["-u0", sysid, "-"] $ unlines localrpms
-  mapM_ putStrLn $ filter (not . ("@@ " `isPrefixOf`)) $ lines diff
+  case dfilter of
+    DiffNormal -> do
+      diff <- cmdIgnoreErr "diff" ["-u0", sysid, "-"] $ unlines localrpms
+      mapM_ putStrLn $ filter (not . ("@@ " `isPrefixOf`)) $ lines diff
+    DiffRemoved ->
+      mapM_ putStrLn $ (lines sysid) \\ localrpms
+    DiffAdded ->
+      mapM_ putStrLn $ localrpms \\ (lines sysid)
 
 rpmqaArgs :: [String]
 rpmqaArgs = ["-qa", "--qf", "%{name}\n"]
