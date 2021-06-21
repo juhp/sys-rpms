@@ -3,7 +3,7 @@
 module Main (main) where
 
 import Control.Monad.Extra
-import Data.List
+import qualified Data.List as L
 import Data.List.Split
 import Data.Time.Clock
 import Data.Time.Format
@@ -48,7 +48,7 @@ saveCmd :: IO ()
 saveCmd = do
   basefile <- getBaseFile
   mlatest <- maybeLatestCacheFile basefile
-  rpms <- unlines . sort <$> cmdLines "rpm" rpmqaArgs
+  rpms <- unlines . L.sort <$> cmdLines "rpm" rpmqaArgs
   mstore <-
     case mlatest of
       Just cache -> do
@@ -101,7 +101,7 @@ getSystemId = do
         head . tail . dropWhile (/= "-c") . splitOn "\NUL" <$> readFile (procpid </> "cmdline")
         else do
         status <- lines <$> readFile (procpid </> "status")
-        let mppid = find ("PPid:" `isInfixOf`) status
+        let mppid = L.find ("PPid:" `L.isInfixOf`) status
         case mppid of
           Nothing -> error' "could not determine containerid"
           Just ppid -> getContainerId $ removePrefix "PPid:\t" ppid
@@ -109,7 +109,7 @@ getSystemId = do
 maybeLatestCacheFile :: FilePath -> IO (Maybe FilePath)
 maybeLatestCacheFile path = do
   let (dir,base) = splitFileName path
-  files <- sort . filter (base `isPrefixOf`) <$> listDirectory dir
+  files <- L.sort . filter (base `L.isPrefixOf`) <$> listDirectory dir
   return $ if null files then Nothing
            else Just $ dir </> last files
 
@@ -127,15 +127,15 @@ diffCmd dfilter msysid = do
     Just sid -> do
       dir <- getUserCacheDir "sys-rpms"
       return $ dir </> sid
-  localrpms <- sort <$> cmdLines "rpm" rpmqaArgs
+  localrpms <- L.sort <$> cmdLines "rpm" rpmqaArgs
   case dfilter of
     DiffNormal -> do
       diff <- cmdIgnoreErr "diff" ["-u0", sysid, "-"] $ unlines localrpms
-      mapM_ putStrLn $ filter (not . ("@@ " `isPrefixOf`)) $ lines diff
+      mapM_ putStrLn $ filter (not . ("@@ " `L.isPrefixOf`)) $ lines diff
     DiffRemoved ->
-      mapM_ putStrLn $ (lines sysid) \\ localrpms
+      mapM_ putStrLn $ (lines sysid) L.\\ localrpms
     DiffAdded ->
-      mapM_ putStrLn $ localrpms \\ (lines sysid)
+      mapM_ putStrLn $ localrpms L.\\ (lines sysid)
 
 rpmqaArgs :: [String]
 rpmqaArgs = ["-qa", "--qf", "%{name}\n"]
@@ -143,13 +143,13 @@ rpmqaArgs = ["-qa", "--qf", "%{name}\n"]
 listCmd :: IO ()
 listCmd = do
   dir <- getUserCacheDir "sys-rpms"
-  systems <- filter (not . ("." `isInfixOf`)) <$> listDirectory dir
+  systems <- filter (not . ("." `L.isInfixOf`)) <$> listDirectory dir
   machineid <- take 12 <$> readFile "/etc/machine-id"
   ident <- getSystemId
   forM_ systems $ \ sys -> do
     latest <- latestCacheFile (dir </> sys)
     putStr $ takeFileName latest
-    when (machineid `isSuffixOf` sys) $ putStr " [host]"
+    when (machineid `L.isSuffixOf` sys) $ putStr " [host]"
     putStrLn $ if sys == ident then " [local]" else ""
 
 showCmd :: Maybe String -> IO ()
@@ -164,7 +164,7 @@ showCmd msysid = do
 
 currentCmd :: IO ()
 currentCmd =
-  cmdLines "rpm" rpmqaArgs >>= mapM_ putStrLn . sort
+  cmdLines "rpm" rpmqaArgs >>= mapM_ putStrLn . L.sort
 
 #if (defined(MIN_VERSION_simple_cmd) && MIN_VERSION_simple_cmd(0,1,4))
 #else
