@@ -166,8 +166,7 @@ currentCmd :: IO ()
 currentCmd =
   cmdLines "rpm" rpmqaArgs >>= mapM_ putStrLn . L.sort
 
-#if (defined(MIN_VERSION_simple_cmd) && MIN_VERSION_simple_cmd(0,1,4))
-#else
+#if !MIN_VERSION_simple_cmd(0,1,4)
 error' :: String -> a
 #if (defined(MIN_VERSION_base) && MIN_VERSION_base(4,9,0))
 error' = errorWithoutStackTrace
