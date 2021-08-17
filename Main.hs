@@ -4,7 +4,7 @@ module Main (main) where
 
 import Control.Monad.Extra
 import qualified Data.List as L
-import Data.List.Split
+import Data.List.Extra
 import Data.Time.Clock
 import Data.Time.Format
 import SimpleCmd
@@ -21,41 +21,84 @@ import System.Posix.Process
 import Paths_sys_rpms (version)
 
 main :: IO ()
-main =
+main = do
+  setDirectory
   simpleCmdArgs (Just version) "Record installed rpm packages"
     "This tool stores package lists to know what packages have been added" $
     subcommands
     [ Subcommand "save" "save rpm list for this system/container" $
       pure saveCmd
     , Subcommand "diff" "compare current installed rpms with saved list" $
-      diffCmd <$> diffFilter <*> optional (strArg "ID")
+      diffCmd <$> diffFilter <*> optional sysArg
     , Subcommand "list" "list of rpm systems saved" $
       pure listCmd
     , Subcommand "show" "show saved package list" $
-      showCmd <$> optional (strArg "ID")
+      showCmd <$> optional sysArg
     , Subcommand "current" "output current system rpms" $
       pure currentCmd
     ]
   where
+    setDirectory = do
+      dir <- getUserCacheDir "sys-rpms"
+      createDirectoryIfMissing True dir
+      setCurrentDirectory dir
+
     diffFilter =
       flagWith' DiffAdded 'a' "added" "Show added packages" <|>
       flagWith DiffNormal DiffRemoved 'd' "removed" "Show removed packages"
 
+    sysArg :: Parser System
+    sysArg = readSystem <$> strArg "SYSID"
+
 data DiffFilter = DiffNormal | DiffRemoved | DiffAdded
+
+--                   name   id
+data System = System String String
+  deriving Eq
+
+instance Show System where
+  show (System n i) = n ++ "--" ++ i
+
+readSystem :: String -> System
+readSystem sys =
+  case stripInfix "--" sys of
+    Nothing -> error' $ "illegal system: " ++ sys
+    Just (name,sid) -> System name sid
+
+data SysRecord = SysRecord {_sysName :: String,
+                            sysId ::String,
+                            _sysTS :: String
+                           }
+
+instance Show SysRecord where
+  show (SysRecord n i t) = show (System n i) <.> t
+
+readSysRecord :: String -> SysRecord
+readSysRecord sysrec =
+  case stripInfix "--" sysrec of
+    Nothing -> error' $ "illegal system record: " ++ sysrec
+    Just (name,idts) ->
+      case stripInfix "." idts of
+        Nothing -> error' $ "missing timestamp: " ++ sysrec
+        Just (sid,ts) -> SysRecord name sid ts
+
+system :: SysRecord -> System
+system (SysRecord n i _) = System n i
 
 -- FIXME --versions ?
 saveCmd :: IO ()
 saveCmd = do
-  basefile <- getBaseFile
-  mlatest <- maybeLatestCacheFile basefile
+  sys <- getSystem
+  mlatest <- maybeLatestRecord sys
   rpms <- unlines . L.sort <$> cmdLines "rpm" rpmqaArgs
   mstore <-
     case mlatest of
-      Just cache -> do
-        origrpms <- readFile cache
-        if rpms == origrpms then return Nothing
-          else Just <$> newFilename basefile
-      Nothing -> Just <$> newFilename basefile
+      Just sysrec -> do
+        origrpms <- readFile $ show sysrec
+        if rpms == origrpms
+          then return Nothing
+          else Just <$> newFilename sys
+      Nothing -> Just <$> newFilename sys
   case mstore of
     Nothing -> putStrLn "no change"
     Just store -> do
@@ -65,26 +108,22 @@ saveCmd = do
     newFilename base = do
         zt <- getCurrentTime
         let timestamp = formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%z" zt
-        return $ base <.> timestamp
+        return $ show base <.> timestamp
 
-getBaseFile :: IO FilePath
-getBaseFile = do
-  dir <- getUserCacheDir "sys-rpms"
-  ident <- getSystemId
-  return $ dir </> ident
+getRecord :: Maybe System -> IO SysRecord
+getRecord msys =
+  maybe getSystem return msys
+  >>= latestRecord
 
--- FIXME? --force/--delete
-getCacheFile :: IO FilePath
-getCacheFile =
-  getBaseFile >>= latestCacheFile
-
-getSystemId :: IO String
-getSystemId = do
+getSystem :: IO System
+getSystem = do
   name <- getSystemName
   container <- doesFileExist "/run/.containerenv"
-  ((name ++ "-") ++) . take 12 <$> if container
+  sysid <- take 12 <$>
+    if container
     then getParentProcessID >>= getContainerId . show
     else readFile "/etc/machine-id"
+  return $ System name sysid
   where
     getSystemName :: IO String
     getSystemName = do
@@ -106,61 +145,64 @@ getSystemId = do
           Nothing -> error' "could not determine containerid"
           Just ppid -> getContainerId $ removePrefix "PPid:\t" ppid
 
-maybeLatestCacheFile :: FilePath -> IO (Maybe FilePath)
-maybeLatestCacheFile path = do
-  let (dir,base) = splitFileName path
-  files <- L.sort . filter (base `L.isPrefixOf`) <$> listDirectory dir
-  return $ if null files then Nothing
-           else Just $ dir </> last files
+maybeLatestRecord :: System -> IO (Maybe SysRecord)
+maybeLatestRecord sys = do
+  sysrecs <- L.sort . filter isSystem <$> listDirectory "."
+  return $ if null sysrecs
+           then Nothing
+           else Just $ readSysRecord $ last sysrecs
+  where
+    isSystem :: FilePath -> Bool
+    isSystem file =
+      show sys `L.isPrefixOf` file
 
-latestCacheFile :: FilePath -> IO FilePath
-latestCacheFile path = do
-  mlatest <- maybeLatestCacheFile path
+latestRecord :: System -> IO SysRecord
+latestRecord sys = do
+  mlatest <- maybeLatestRecord sys
   case mlatest of
-    Nothing -> error' $ path ++ "* not found"
+    Nothing -> error' $ show sys ++ " not found"
     Just file -> return file
 
-diffCmd :: DiffFilter -> Maybe String -> IO ()
-diffCmd dfilter msysid = do
-  sysid <- case msysid of
-    Nothing -> getCacheFile
-    Just sid -> do
-      dir <- getUserCacheDir "sys-rpms"
-      return $ dir </> sid
+diffCmd :: DiffFilter -> Maybe System -> IO ()
+diffCmd dfilter msys = do
+  sysrec <- getRecord msys
   localrpms <- L.sort <$> cmdLines "rpm" rpmqaArgs
   case dfilter of
     DiffNormal -> do
-      diff <- cmdIgnoreErr "diff" ["-u0", sysid, "-"] $ unlines localrpms
+      diff <- cmdIgnoreErr "diff" ["-u0", show sysrec, "-"] $ unlines localrpms
       mapM_ putStrLn $ filter (not . ("@@ " `L.isPrefixOf`)) $ lines diff
-    DiffRemoved ->
-      mapM_ putStrLn $ (lines sysid) L.\\ localrpms
-    DiffAdded ->
-      mapM_ putStrLn $ localrpms L.\\ (lines sysid)
+    DiffRemoved -> do
+      pkgs <- getSysRecordPkgs sysrec
+      mapM_ putStrLn $ pkgs L.\\ localrpms
+    DiffAdded -> do
+      pkgs <- getSysRecordPkgs sysrec
+      mapM_ putStrLn $ localrpms L.\\ pkgs
 
 rpmqaArgs :: [String]
 rpmqaArgs = ["-qa", "--qf", "%{name}\n"]
 
 listCmd :: IO ()
 listCmd = do
-  dir <- getUserCacheDir "sys-rpms"
-  systems <- filter (not . ("." `L.isInfixOf`)) <$> listDirectory dir
+  systems <- map last . groupBy sameSystem . map readSysRecord . sort <$> listDirectory "."
   machineid <- take 12 <$> readFile "/etc/machine-id"
-  ident <- getSystemId
-  forM_ systems $ \ sys -> do
-    latest <- latestCacheFile (dir </> sys)
-    putStr $ takeFileName latest
-    when (machineid `L.isSuffixOf` sys) $ putStr " [host]"
-    putStrLn $ if sys == ident then " [local]" else ""
+  ident <- getSystem
+  forM_ systems $ \ sysrec -> do
+    putStr $ show sysrec
+    when (machineid == sysId sysrec) $ putStr " [host]"
+    putStrLn $ if system sysrec == ident then " [local]" else ""
+  where
+    sameSystem :: SysRecord -> SysRecord -> Bool
+    sameSystem (SysRecord n1 sid1 _) (SysRecord n2 sid2 _) =
+      n1 == n2 && sid1 == sid2
 
-showCmd :: Maybe String -> IO ()
-showCmd msysid = do
-  sysid <- case msysid of
-    Nothing -> getCacheFile
-    Just sid -> do
-      dir <- getUserCacheDir "sys-rpms"
-      ifM (doesFileExist (dir </> sid)) (return $ dir </> sid) $
-        latestCacheFile (dir </> sid)
-  readFile sysid >>= putStr
+getSysRecordPkgs :: SysRecord -> IO [String]
+getSysRecordPkgs sysrec = do
+  lines <$> readFile (show sysrec)
+
+showCmd :: Maybe System -> IO ()
+showCmd msys = do
+  sysrec <- getRecord msys
+  getSysRecordPkgs sysrec >>= mapM_ putStrLn
 
 currentCmd :: IO ()
 currentCmd =
