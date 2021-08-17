@@ -20,6 +20,8 @@ import System.Posix.Process
 
 import Paths_sys_rpms (version)
 
+data SystemSpec = Local | Host | SysId String
+
 main :: IO ()
 main = do
   setDirectory
@@ -31,7 +33,7 @@ main = do
     , Subcommand "diff" "compare current installed rpms with saved list" $
       diffCmd <$> diffFilter <*> optional sysArg
     , Subcommand "list" "list of rpm systems saved" $
-      pure listCmd
+      listCmd <$> optional sysSpec
     , Subcommand "show" "show saved package list" $
       showCmd <$> optional sysArg
     , Subcommand "current" "output current system rpms" $
@@ -46,6 +48,12 @@ main = do
     diffFilter =
       flagWith' DiffAdded 'a' "added" "Show added packages" <|>
       flagWith DiffNormal DiffRemoved 'd' "removed" "Show removed packages"
+
+    sysSpec :: Parser SystemSpec
+    sysSpec =
+      flagWith' Local 'l' "local" "Current local system/container" <|>
+      flagWith' Host 'h' "host" "Host system (relative to container)" <|>
+      SysId <$> strArg "SYSID"
 
     sysArg :: Parser System
     sysArg = readSystem <$> strArg "SYSID"
@@ -105,33 +113,23 @@ saveCmd = do
       writeFile store rpms
       putStrLn store
   where
-    newFilename base = do
+    newFilename sys = do
         zt <- getCurrentTime
         let timestamp = formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%z" zt
-        return $ show base <.> timestamp
+        return $ show sys <.> timestamp
 
 getRecord :: Maybe System -> IO SysRecord
 getRecord msys =
   maybe getSystem return msys
   >>= latestRecord
 
-getSystem :: IO System
-getSystem = do
-  name <- getSystemName
+getSystemId :: IO String
+getSystemId = do
   container <- doesFileExist "/run/.containerenv"
-  sysid <- take 12 <$>
-    if container
-    then getParentProcessID >>= getContainerId . show
-    else readFile "/etc/machine-id"
-  return $ System name sysid
+  if container
+    then take 12 <$> (getParentProcessID >>= getContainerId . show)
+    else getMachineId
   where
-    getSystemName :: IO String
-    getSystemName = do
-      hostname <- readFile "/etc/hostname"
-      case hostname of
-        "toolbox" -> getEnv "DISTTAG"
-        _ -> return $ takeWhile (/= '.') hostname
-
     getContainerId :: String -> IO String
     getContainerId pid = do
       let procpid = "/proc" </> pid
@@ -144,6 +142,19 @@ getSystem = do
         case mppid of
           Nothing -> error' "could not determine containerid"
           Just ppid -> getContainerId $ removePrefix "PPid:\t" ppid
+
+getSystem :: IO System
+getSystem = do
+  name <- getSystemName
+  sysid <- getSystemId
+  return $ System name sysid
+  where
+    getSystemName :: IO String
+    getSystemName = do
+      hostname <- readFile "/etc/hostname"
+      case hostname of
+        "toolbox" -> getEnv "DISTTAG"
+        _ -> return $ takeWhile (/= '.') hostname
 
 maybeLatestRecord :: System -> IO (Maybe SysRecord)
 maybeLatestRecord sys = do
@@ -181,19 +192,37 @@ diffCmd dfilter msys = do
 rpmqaArgs :: [String]
 rpmqaArgs = ["-qa", "--qf", "%{name}\n"]
 
-listCmd :: IO ()
-listCmd = do
+displayRec :: SysRecord -> String
+displayRec (SysRecord n i t) = n ++ " (" ++ i ++ ") " ++ t
+
+listCmd :: Maybe SystemSpec -> IO ()
+listCmd Nothing = do
   systems <- map last . groupBy sameSystem . map readSysRecord . sort <$> listDirectory "."
-  machineid <- take 12 <$> readFile "/etc/machine-id"
+  machineid <- getMachineId
   ident <- getSystem
   forM_ systems $ \ sysrec -> do
-    putStr $ show sysrec
+    putStr $ displayRec sysrec
     when (machineid == sysId sysrec) $ putStr " [host]"
     putStrLn $ if system sysrec == ident then " [local]" else ""
   where
     sameSystem :: SysRecord -> SysRecord -> Bool
     sameSystem (SysRecord n1 sid1 _) (SysRecord n2 sid2 _) =
       n1 == n2 && sid1 == sid2
+listCmd (Just sysspec) = do
+  sysid <- getSystemSpec sysspec
+  filter (hasSysId sysid) . map readSysRecord . sort <$> listDirectory "."
+  >>= mapM_ (putStrLn . displayRec)
+  where
+    hasSysId :: String -> SysRecord -> Bool
+    hasSysId sid sysrec = sid == sysId sysrec
+
+getMachineId :: IO String
+getMachineId = take 12 <$> readFile "/etc/machine-id"
+
+getSystemSpec :: SystemSpec -> IO String
+getSystemSpec Local = getSystemId
+getSystemSpec Host = getMachineId
+getSystemSpec (SysId sysid) = return sysid
 
 getSysRecordPkgs :: SysRecord -> IO [String]
 getSysRecordPkgs sysrec = do
