@@ -61,7 +61,8 @@ main = do
 data DiffFilter = DiffNormal | DiffRemoved | DiffAdded
 
 --                   name   id
-data System = System String String
+data System = System {_sysName:: String,
+                       sysId ::String}
   deriving Eq
 
 instance Show System where
@@ -73,13 +74,12 @@ readSystem sys =
     Nothing -> error' $ "illegal system: " ++ sys
     Just (name,sid) -> System name sid
 
-data SysRecord = SysRecord {_sysName :: String,
-                            sysId ::String,
+data SysRecord = SysRecord {system :: System,
                             sysTS :: String
                            }
 
 instance Show SysRecord where
-  show (SysRecord n i t) = show (System n i) <.> t
+  show (SysRecord sysid t) = show sysid <.> t
 
 readSysRecord :: String -> SysRecord
 readSysRecord sysrec =
@@ -88,10 +88,7 @@ readSysRecord sysrec =
     Just (name,idts) ->
       case stripInfix "." idts of
         Nothing -> error' $ "missing timestamp: " ++ sysrec
-        Just (sid,ts) -> SysRecord name sid ts
-
-system :: SysRecord -> System
-system (SysRecord n i _) = System n i
+        Just (sid,ts) -> SysRecord (System name sid) ts
 
 -- FIXME --versions ?
 saveCmd :: IO ()
@@ -193,7 +190,7 @@ rpmqaArgs :: [String]
 rpmqaArgs = ["-qa", "--qf", "%{name}\n"]
 
 displayRec :: SysRecord -> String
-displayRec (SysRecord n i t) = n ++ " (" ++ i ++ ") " ++ t
+displayRec (SysRecord sysid t) = show sysid ++ " " ++ t
 
 listCmd :: Maybe SystemSpec -> IO ()
 listCmd Nothing = do
@@ -202,20 +199,20 @@ listCmd Nothing = do
   ident <- getSystem
   forM_ systems $ \ sysrec -> do
     putStr $ displayRec sysrec
-    when (machineid == sysId sysrec) $ putStr " [host]"
+    when (machineid == sysId (system sysrec)) $ putStr " [host]"
     when (system sysrec == ident) $ putStr " [local]"
     putStrLn ""
   where
     sameSystem :: SysRecord -> SysRecord -> Bool
-    sameSystem (SysRecord n1 sid1 _) (SysRecord n2 sid2 _) =
-      n1 == n2 && sid1 == sid2
+    sameSystem (SysRecord sysid1 _) (SysRecord sysid2 _) =
+      sysid1 == sysid2
 listCmd (Just sysspec) = do
   sysid <- getSystemSpec sysspec
   filter (hasSysId sysid) . map readSysRecord . sort <$> listDirectory "."
   >>= mapM_ (putStrLn . displayRec)
   where
     hasSysId :: String -> SysRecord -> Bool
-    hasSysId sid sysrec = sid == sysId sysrec
+    hasSysId sid sysrec = sid == sysId (system sysrec)
 
 getMachineId :: IO String
 getMachineId = take 12 <$> readFile "/etc/machine-id"
