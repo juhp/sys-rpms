@@ -75,7 +75,7 @@ readSystem sys =
 
 data SysRecord = SysRecord {_sysName :: String,
                             sysId ::String,
-                            _sysTS :: String
+                            sysTS :: String
                            }
 
 instance Show SysRecord where
@@ -197,7 +197,7 @@ displayRec (SysRecord n i t) = n ++ " (" ++ i ++ ") " ++ t
 
 listCmd :: Maybe SystemSpec -> IO ()
 listCmd Nothing = do
-  systems <- map last . groupBy sameSystem . map readSysRecord . sort <$> listDirectory "."
+  systems <- sortOn sysTS . map last . groupBy sameSystem . map readSysRecord . sort <$> listDirectory "."
   machineid <- getMachineId
   ident <- getSystem
   forM_ systems $ \ sysrec -> do
