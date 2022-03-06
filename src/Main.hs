@@ -203,7 +203,8 @@ listCmd Nothing = do
   forM_ systems $ \ sysrec -> do
     putStr $ displayRec sysrec
     when (machineid == sysId sysrec) $ putStr " [host]"
-    putStrLn $ if system sysrec == ident then " [local]" else ""
+    when (system sysrec == ident) $ putStr " [local]"
+    putStrLn ""
   where
     sameSystem :: SysRecord -> SysRecord -> Bool
     sameSystem (SysRecord n1 sid1 _) (SysRecord n2 sid2 _) =
