@@ -51,8 +51,8 @@ main = do
 
     sysSpec :: Parser SystemSpec
     sysSpec =
-      flagWith' Local 'l' "local" "Current local system/container" <|>
-      flagWith' Host 'h' "host" "Host system (relative to container)" <|>
+      flagWith' Local 'L' "local" "Current local system/container" <|>
+      flagWith' Host 'H' "host" "Host system (relative to container)" <|>
       SysId <$> strArg "SYSID"
 
     sysArg :: Parser System
