@@ -148,10 +148,11 @@ getSystem = do
   where
     getSystemName :: IO String
     getSystemName = do
-      hostname <- readFile "/etc/hostname"
-      case hostname of
+      hostname <- cmd "hostname" []
+      case trim hostname of
+        "" -> error' "could not determine hostname"
         "toolbox" -> getEnv "DISTTAG"
-        _ -> return $ takeWhile (/= '.') hostname
+        h -> return $ takeWhile (/= '.') h
 
 maybeLatestRecord :: System -> IO (Maybe SysRecord)
 maybeLatestRecord sys = do
