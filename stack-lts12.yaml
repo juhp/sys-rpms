@@ -1,7 +1,6 @@
-resolver: lts-11.22
+resolver: lts-12.26
 
 extra-deps:
   - simple-cmd-args-0.1.6
-  - simple-cmd-0.1.2
   - network-bsd-2.7.0.0
   - network-2.7.0.2

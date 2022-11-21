@@ -34,6 +34,7 @@ executable sys-rpms
                      , directory
                      , extra
                      , filepath
+                     , network-bsd
                      , simple-cmd
                      , simple-cmd-args >= 0.1.6
                      , time

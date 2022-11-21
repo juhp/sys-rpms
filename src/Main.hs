@@ -7,6 +7,7 @@ import qualified Data.List as L
 import Data.List.Extra
 import Data.Time.Clock
 import Data.Time.Format
+import Network.BSD (getHostName)
 import SimpleCmd
 #if MIN_VERSION_simple_cmd(0,2,1)
   hiding (ifM)
@@ -148,7 +149,7 @@ getSystem = do
   where
     getSystemName :: IO String
     getSystemName = do
-      hostname <- cmd "hostname" []
+      hostname <- getHostName
       case trim hostname of
         "" -> error' "could not determine hostname"
         "toolbox" -> getEnv "DISTTAG"
