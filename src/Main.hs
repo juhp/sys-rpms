@@ -39,6 +39,8 @@ main = do
       showCmd <$> optional sysArg
     , Subcommand "current" "output current system rpms" $
       pure currentCmd
+    , Subcommand "show-rpm-cmd" "print the package list rpm command" $
+      pure $ putStrLn $ (unwords $ "rpm" : map show rpmqaArgs) +-+ "| sort"
     ]
   where
     setDirectory = do
