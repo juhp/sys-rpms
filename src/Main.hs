@@ -198,7 +198,7 @@ displayRec (SysRecord sysid t) = show sysid ++ " " ++ t
 
 listCmd :: Maybe SystemSpec -> IO ()
 listCmd Nothing = do
-  systems <- sortOn sysTS . map last . groupBy sameSystem . map readSysRecord . sort <$> listDirectory "."
+  systems <- sortOn sysTS . map last . groupBy sameSystem . map readSysRecord . sort . filter (not . ((== '.') . head)) <$> listDirectory "."
   machineid <- getMachineId
   ident <- getSystem
   forM_ systems $ \ sysrec -> do
